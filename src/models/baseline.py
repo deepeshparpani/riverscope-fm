@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class DoubleConv(nn.Module):
-    \"\"\"(convolution => [BN] => ReLU) * 2\"\"\"
+    """(convolution => [BN] => ReLU) * 2"""
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.double_conv = nn.Sequential(
@@ -19,7 +19,7 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
 
 class Down(nn.Module):
-    \"\"\"Downscaling with maxpool then double conv\"\"\"
+    """Downscaling with maxpool then double conv"""
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
@@ -31,7 +31,7 @@ class Down(nn.Module):
         return self.maxpool_conv(x)
 
 class Up(nn.Module):
-    \"\"\"Upscaling then double conv\"\"\"
+    """Upscaling then double conv"""
     def __init__(self, in_channels, out_channels, bilinear=True):
         super().__init__()
 
@@ -63,9 +63,9 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class RiverScopeBaselineUNet(nn.Module):
-    \"\"\"
+    """
     Standard U-Net architecture designed to train natively on high-res satellite imagery.
-    \"\"\"
+    """
     def __init__(self, n_channels=12, n_classes=1, bilinear=False):
         super(RiverScopeBaselineUNet, self).__init__()
         self.n_channels = n_channels
