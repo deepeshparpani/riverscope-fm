@@ -80,8 +80,10 @@ dmypy.json
 ehthumbs.db
 Thumbs.db
 
-# Project specifics
-data/
-outputs/
+# Machine Learning & Data 
+*.pth
+*.pt
+data/raw/
+data/processed/
 logs/
 .vscode/
