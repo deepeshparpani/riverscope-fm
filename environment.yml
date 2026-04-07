@@ -1,0 +1,33 @@
+name: riverscope_env
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  # Core Python & Package Managers
+  - python=3.10
+  - pip  # <-- This fixes the warning!
+  
+  # Deep Learning (PyTorch for Mac automatically uses MPS, no CUDA needed)
+  - pytorch::pytorch
+  - pytorch::torchvision
+  
+  # Geospatial & Data Wrangling
+  - rasterio
+  - geopandas
+  - pandas
+  - numpy
+  
+  # Visualization & Metrics
+  - matplotlib
+  - scikit-learn
+  - jupyter
+  - ipykernel
+  
+  # Pip packages for specific Model Architectures
+  - pip:
+    - transformers
+    - timm
+    - segmentation-models-pytorch
+    - peft
+    - tqdm
