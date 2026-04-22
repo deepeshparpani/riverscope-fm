@@ -98,8 +98,10 @@ class RiverScopeDataset(Dataset):
             mask_data = src.read(
                 1,
                 out_shape=(self.tile_size[0], self.tile_size[1]),
-                resampling=Resampling.nearest  # Nearest for categorical masks — no value blending
+                resampling=Resampling.bilinear
             )
+            # Re-binarize cleanly to avoid jagged nearest-neighbor artifacts
+            mask_data = (mask_data > 0.5).astype(np.uint8)
             
         # ==========================================
         # 3. TENSOR FORMATTING

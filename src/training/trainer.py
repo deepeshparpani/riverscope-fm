@@ -17,11 +17,10 @@ class RiverScopeTrainer:
       - CosineAnnealingLR: Decays LR from starting value -> eta_min=1e-6 over T_max
                        epochs. Prevents oscillation around the minimum in the final
                        epochs, typically recovering 1-2 IoU points vs flat LR.
-      - pos_weight=20: Calibrated to the 4.6% river pixel rate: (1-0.046)/0.046 ≈ 20.7.
-      - BCE + Dice:    BCE handles per-pixel accuracy; Dice handles spatial overlap
-                       quality, critical for thin linear river structures.
+      - pos_weight=5:  Dropped from 20 to 5 to massively boost Precision and cut false positives.
+      - BCE Loss only: Dice loss removed to isolate the impact of pos_weight tuning.
     """
-    def __init__(self, model, train_loader, val_loader, device=None, lr=1e-4, epochs=25):
+    def __init__(self, model, train_loader, val_loader, device=None, lr=1e-4, epochs=50):
         # Hardware acceleration check (MPS is ideal on Mac M-series)
         if device is None:
             self.device = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -40,13 +39,13 @@ class RiverScopeTrainer:
         # Step is called once per epoch (after validation) in fit()
         self.scheduler = CosineAnnealingLR(self.optimizer, T_max=epochs, eta_min=1e-6)
 
-        # Loss: BCE (per-pixel) + Dice (spatial overlap)
-        # pos_weight=20 gives 20x gradient signal on the minority water class
-        self.bce_loss = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([20.0]).to(self.device))
-        self.dice_loss = BinaryDiceLoss()
+        # Loss: BCE only
+        # pos_weight=5.0 gives 5x gradient signal on the minority water class,
+        # drastically reducing the "fattening" false positives from the 20.0 run.
+        self.bce_loss = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5.0]).to(self.device))
 
     def criterion(self, logits, targets):
-        return self.bce_loss(logits, targets) + self.dice_loss(logits, targets)
+        return self.bce_loss(logits, targets)
 
     def train_epoch(self):
         self.model.train()
