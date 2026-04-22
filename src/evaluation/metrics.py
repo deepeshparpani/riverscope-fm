@@ -18,6 +18,32 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor, threshold: float = 0
     iou = (intersection + 1e-6) / (union + 1e-6)
     return iou.mean().item()
 
+def compute_extended_metrics(preds: torch.Tensor, targets: torch.Tensor, threshold: float = 0.5):
+    """
+    Computes IoU, Precision, Recall, and F1 Score for binary segmentation.
+    """
+    preds = (torch.sigmoid(preds) > threshold).float()
+    
+    # Calculate True Positives, False Positives, False Negatives
+    tp = (preds * targets).sum(dim=(1, 2, 3))
+    fp = (preds * (1 - targets)).sum(dim=(1, 2, 3))
+    fn = ((1 - preds) * targets).sum(dim=(1, 2, 3))
+    
+    intersection = tp
+    union = tp + fp + fn
+    
+    iou = (intersection + 1e-6) / (union + 1e-6)
+    precision = (tp + 1e-6) / (tp + fp + 1e-6)
+    recall = (tp + 1e-6) / (tp + fn + 1e-6)
+    f1 = 2 * (precision * recall) / (precision + recall + 1e-6)
+    
+    return {
+        'iou': iou.mean().item(),
+        'precision': precision.mean().item(),
+        'recall': recall.mean().item(),
+        'f1': f1.mean().item()
+    }
+
 class BinaryDiceLoss(nn.Module):
     """
     Dice loss to combat severe class imbalance.
