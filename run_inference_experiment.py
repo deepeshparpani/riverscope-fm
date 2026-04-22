@@ -47,15 +47,14 @@ from src.data.dataset import RiverScopeDataset
 from src.models.probing import EndToEndOlmoSegmenter
 
 # ─────────────────────────────────────────────
-# CONFIG
+# DEFAULT PATHS (Overridable via argparse)
 # ─────────────────────────────────────────────
-DATA_ROOT       = "data/raw/RiverScope_dataset"
-TRAIN_CSV       = os.path.join(DATA_ROOT, "train.csv")
-CHECKPOINT      = "notebooks/best_olmo_dynamic_sweep.pth"
-LOGIT_CACHE_DIR = "data/embeddings/logit_cache_10m"   # Phase 1 output
-MASK_OUTPUT_DIR = "data/processed/predicted_masks_3m"  # Phase 2 output
-BATCH_SIZE      = 1   # Keep at 1 so geo_meta is cleanly indexable
-THRESHOLD       = 0.5 # Binary mask threshold
+DATA_ROOT_DEFAULT = "data/raw/RiverScope_dataset"
+CHECKPOINT_DEFAULT= "best_olmo_cosine_probe.pth"
+LOGIT_CACHE_DIR   = "data/embeddings/logit_cache_10m"   # Phase 1 output
+MASK_OUTPUT_DIR   = "data/processed/predicted_masks_3m"  # Phase 2 output
+BATCH_SIZE        = 1   # Keep at 1 so geo_meta is cleanly indexable
+THRESHOLD         = 0.5 # Binary mask threshold
 
 
 def get_device():
@@ -98,7 +97,7 @@ def tile_id_from_path(img_path: str) -> str:
 # ─────────────────────────────────────────────
 # PHASE 1: Cache 10m logits to disk
 # ─────────────────────────────────────────────
-def phase1_cache_logits(model: EndToEndOlmoSegmenter, device: torch.device):
+def phase1_cache_logits(model: EndToEndOlmoSegmenter, device: torch.device, data_root: str):
     """
     Runs the OlmoEarth encoder + probing head on every tile and saves the
     raw 10m-scale logits (shape [1, 1, 224, 224]) to disk as .pt files.
@@ -109,7 +108,8 @@ def phase1_cache_logits(model: EndToEndOlmoSegmenter, device: torch.device):
     """
     os.makedirs(LOGIT_CACHE_DIR, exist_ok=True)
 
-    dataset = RiverScopeDataset(TRAIN_CSV, DATA_ROOT)
+    train_csv = os.path.join(data_root, "train.csv")
+    dataset = RiverScopeDataset(train_csv, data_root)
     loader  = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
     print(f"\n{'='*60}")
@@ -193,7 +193,8 @@ def phase2_save_masks(upsample_mode: str = 'bilinear'):
 
     # Build a quick lookup: stem -> rasterio metadata
     # We need the CRS/transform from the original source files
-    dataset = RiverScopeDataset(TRAIN_CSV, DATA_ROOT)
+    train_csv = os.path.join(data_root, "train.csv")
+    dataset = RiverScopeDataset(train_csv, data_root)
 
     # Build path -> geo_meta map by iterating the dataset (no GPU needed here)
     print("Building geospatial metadata index...")
@@ -271,7 +272,8 @@ def phase2_save_masks(upsample_mode: str = 'bilinear'):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RiverScope up/downsample inference experiment")
     parser.add_argument("--phase",      type=int,   default=0,          help="1=cache logits, 2=save masks, 0=both")
-    parser.add_argument("--checkpoint", type=str,   default=CHECKPOINT, help="Path to model checkpoint .pth")
+    parser.add_argument("--checkpoint", type=str,   default=CHECKPOINT_DEFAULT, help="Path to model checkpoint .pth")
+    parser.add_argument("--data_root",  type=str,   default=DATA_ROOT_DEFAULT, help="Path to your dataset directory")
     parser.add_argument("--upsample",   type=str,   default="bilinear", 
                         choices=["bilinear", "bicubic", "nearest"],
                         help="Upsampling mode for Phase 2 (10m -> 3m)")
@@ -282,10 +284,10 @@ if __name__ == "__main__":
 
     if args.phase in (0, 1):
         model = load_model(args.checkpoint, device)
-        phase1_cache_logits(model, device)
+        phase1_cache_logits(model, device, args.data_root)
 
     if args.phase in (0, 2):
-        phase2_save_masks(upsample_mode=args.upsample)
+        phase2_save_masks(upsample_mode=args.upsample, data_root=args.data_root)
 
     print("\n🚀 Experiment complete!")
     print(f"   Logit cache : {LOGIT_CACHE_DIR}/")
