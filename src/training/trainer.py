@@ -10,17 +10,15 @@ class RiverScopeTrainer:
     PyTorch training loop specialized for the RiverScope semantic segmentation task.
     Supports auto device-mapping (MPS for Mac M-series, CUDA, or CPU).
 
-    Hyperparameter rationale:
+    Hyperparameter rationale (Phase 5):
       - lr=1e-4:       Matches the previous best hyperparameter config.
       - weight_decay:  0 (removed via AdamW default) — linear probes on frozen
                        embeddings can underfit if regularization is too strong.
-      - CosineAnnealingLR: Decays LR from starting value -> eta_min=1e-6 over T_max
-                       epochs. Prevents oscillation around the minimum in the final
-                       epochs, typically recovering 1-2 IoU points vs flat LR.
-      - pos_weight=5:  Dropped from 20 to 5 to massively boost Precision and cut false positives.
+      - Scheduler:     None (Flat LR). Reverting back to Phase 1 baseline.
+      - pos_weight=20: Reverted back to 20 to heavily prioritize recall (Phase 1 baseline).
       - BCE Loss only: Dice loss removed to isolate the impact of pos_weight tuning.
     """
-    def __init__(self, model, train_loader, val_loader, device=None, lr=1e-4, epochs=50):
+    def __init__(self, model, train_loader, val_loader, device=None, lr=1e-4, epochs=25):
         # Hardware acceleration check (MPS is ideal on Mac M-series)
         if device is None:
             self.device = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -35,14 +33,12 @@ class RiverScopeTrainer:
         # Optimizer: lower LR (1e-4) matching previous best, NO weight decay (0)
         self.optimizer = AdamW(self.model.parameters(), lr=lr)
 
-        # Cosine Annealing: smoothly decays LR from lr -> eta_min over all epochs
-        # Step is called once per epoch (after validation) in fit()
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=epochs, eta_min=1e-6)
+        # Scheduler: None (Flat LR for Phase 5)
+        self.scheduler = None
 
         # Loss: BCE only
-        # pos_weight=5.0 gives 5x gradient signal on the minority water class,
-        # drastically reducing the "fattening" false positives from the 20.0 run.
-        self.bce_loss = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5.0]).to(self.device))
+        # pos_weight=20.0 gives 20x gradient signal on the minority water class
+        self.bce_loss = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([20.0]).to(self.device))
 
     def criterion(self, logits, targets):
         return self.bce_loss(logits, targets)
@@ -119,8 +115,7 @@ class RiverScopeTrainer:
             print(f"Train Loss: {train_loss:.4f} | Train IoU: {train_iou:.4f}")
             print(f"Val Loss:   {val_loss:.4f} | Val IoU:   {val_iou:.4f}")
 
-            # Step LR scheduler after each epoch (cosine decay)
-            self.scheduler.step()
+            # No scheduler step in Phase 5 (Flat LR)
 
             # Save the optimal model state based on Val IoU
             if val_iou > best_iou:
