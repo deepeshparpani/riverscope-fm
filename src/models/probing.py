@@ -1,3 +1,9 @@
+import os
+# OlmoEarth's FlexiPatchEmbed internally uses bicubic2d_aa which is not yet
+# implemented on Apple Silicon MPS. This fallback allows that one op to run
+# on CPU transparently while everything else stays on MPS.
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+
 import torch
 import torch.nn as nn
 
@@ -50,54 +56,54 @@ class EndToEndOlmoSegmenter(nn.Module):
     """
     def __init__(self, foundation_model, embed_dim=768, num_classes=1):
         super().__init__()
+
+        # Pin encoder to training device (MPS/CUDA) alongside the probe head.
+        # PYTORCH_ENABLE_MPS_FALLBACK=1 (set in trainer.py) handles the one
+        # unsupported op (bicubic2d_aa) by silently falling back to CPU for it.
         self.encoder = foundation_model
         
-        # Explicitly freeze the foundation model parameters to ensure we are only training the head
         for param in self.encoder.parameters():
             param.requires_grad = False
-            
+
         self.head = OlmoEarthProbingHead(embed_dim=embed_dim, num_classes=num_classes)
-        
+
     def forward(self, x, patch_size=16):
         # x shape: [Batch, Time, Channels, NativeHeight, NativeWidth]
         batch_size, time_dim, channels, native_h, native_w = x.shape
         import torch.nn.functional as F
-        
-        # A1. DYNAMICALLY DOWNSAMPLE raw PlanetScope imagery to 10m/px Olmo/Alpha size (224x224)
-        x_squeezed = x.squeeze(1) # Drop dummy time for spatial interpolation
+
+        # A1. DOWNSAMPLE 3m -> 224x224 (10m equivalent) on the training device
+        x_squeezed    = x.squeeze(1)
         x_downsampled = F.interpolate(x_squeezed, size=(224, 224), mode='bilinear', align_corners=False)
-        
-        # A2. Transpose to OlmoEarth format: [Batch, Height, Width, Time, Channels]
-        # Current layout: [Batch, Channels, 224, 224] -> [B, 1, 12, 224, 224] -> [B, 224, 224, 1, 12]
+
+        # A2. Transpose to OlmoEarth format [B, H, W, T, C]
         x_transposed = x_downsampled.unsqueeze(1).permute(0, 3, 4, 1, 2).contiguous()
 
-        # Build the Foundation Model Wrapper
+        # Build Foundation Model input wrapper
         from olmoearth_pretrain.datatypes import MaskedOlmoEarthSample
-        
-        # Generate dummy timestamps (Batch, Time, D=3) mimicking Jun 15th, 2023
         dummy_time = torch.tensor([[[15, 6, 2023]]], dtype=torch.long, device=x.device)
-        timestamps = dummy_time.repeat(x.size(0), 1, 1) 
-        
+        timestamps = dummy_time.repeat(x.size(0), 1, 1)
+
         masked_olmo_sample = MaskedOlmoEarthSample(
             sentinel2_l2a=x_transposed,
             sentinel2_l2a_mask=torch.zeros_like(x_transposed),
             timestamps=timestamps
         )
-        
-        # Forward pass isolating ViT Encoder (Bypassing Decoder sequence)
-        self.encoder.eval() 
+
+        # A3. Run frozen ViT encoder
+        self.encoder.eval()
         with torch.no_grad():
             output_dict = self.encoder.encoder(masked_olmo_sample, patch_size=patch_size)
-            
+
         from olmoearth_pretrain.nn.latent_mim import unpack_encoder_output
         latent, _, _ = unpack_encoder_output(output_dict)
-        s2_tokens = latent.sentinel2_l2a 
+        s2_tokens      = latent.sentinel2_l2a
         spatial_tokens = s2_tokens.mean(dim=(3, 4))
-        
-        # Project to 224x224 segmentations
+
+        # A4. Project 14x14 tokens -> 224x224 logits via CNN probe head
         logits = self.head(spatial_tokens)
-        
-        # A3. DYNAMICALLY UPSAMPLE FM logits back to original academic resolution map (NativeH, NativeW)
+
+        # A5. UPSAMPLE logits back to canonical tile size for loss calculation
         logits_native = F.interpolate(logits, size=(native_h, native_w), mode='bilinear', align_corners=False)
-        
+
         return logits_native
