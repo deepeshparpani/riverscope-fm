@@ -16,7 +16,7 @@ class RiverScopeTrainer:
                        embeddings can underfit if regularization is too strong.
       - Scheduler:     None (Flat LR). Reverting back to Phase 1 baseline.
       - pos_weight=20: Reverted back to 20 to heavily prioritize recall (Phase 1 baseline).
-      - BCE Loss only: Dice loss removed to isolate the impact of pos_weight tuning.
+      - BCE + Dice:    Restored Dice Loss (from Phase 1). Acts as a heavy spatial anchor to prevent gradient explosions on batch_size=1.
     """
     def __init__(self, model, train_loader, val_loader, device=None, lr=1e-4, epochs=25):
         # Hardware acceleration check (MPS is ideal on Mac M-series)
@@ -36,12 +36,15 @@ class RiverScopeTrainer:
         # Scheduler: None (Flat LR for Phase 5)
         self.scheduler = None
 
-        # Loss: BCE only
+        # Loss: BCE (per-pixel scaling) + Dice (spatial overlap anchor)
         # pos_weight=20.0 gives 20x gradient signal on the minority water class
         self.bce_loss = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([20.0]).to(self.device))
+        
+        from src.evaluation.metrics import BinaryDiceLoss
+        self.dice_loss = BinaryDiceLoss()
 
     def criterion(self, logits, targets):
-        return self.bce_loss(logits, targets)
+        return self.bce_loss(logits, targets) + self.dice_loss(logits, targets)
 
     def train_epoch(self):
         self.model.train()
