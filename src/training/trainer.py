@@ -11,10 +11,9 @@ class RiverScopeTrainer:
     Supports auto device-mapping (MPS for Mac M-series, CUDA, or CPU).
 
     Hyperparameter rationale:
-      - lr=3e-4:       Higher starting LR is appropriate for a randomly-initialized probe
-                       head attached to a FROZEN encoder. The stable encoder features
-                       allow the probe to move faster early without diverging.
-      - weight_decay:  0.01 via AdamW to regularize the probe head parameters.
+      - lr=1e-4:       Matches the previous best hyperparameter config.
+      - weight_decay:  0 (removed via AdamW default) — linear probes on frozen
+                       embeddings can underfit if regularization is too strong.
       - CosineAnnealingLR: Decays LR from starting value -> eta_min=1e-6 over T_max
                        epochs. Prevents oscillation around the minimum in the final
                        epochs, typically recovering 1-2 IoU points vs flat LR.
@@ -22,7 +21,7 @@ class RiverScopeTrainer:
       - BCE + Dice:    BCE handles per-pixel accuracy; Dice handles spatial overlap
                        quality, critical for thin linear river structures.
     """
-    def __init__(self, model, train_loader, val_loader, device=None, lr=3e-4, epochs=25):
+    def __init__(self, model, train_loader, val_loader, device=None, lr=1e-4, epochs=25):
         # Hardware acceleration check (MPS is ideal on Mac M-series)
         if device is None:
             self.device = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -34,8 +33,8 @@ class RiverScopeTrainer:
         self.val_loader = val_loader
         self.epochs = epochs
 
-        # Optimizer: higher LR (3e-4) for probe-only training + AdamW weight decay
-        self.optimizer = AdamW(self.model.parameters(), lr=lr, weight_decay=0.01)
+        # Optimizer: lower LR (1e-4) matching previous best, NO weight decay (0)
+        self.optimizer = AdamW(self.model.parameters(), lr=lr)
 
         # Cosine Annealing: smoothly decays LR from lr -> eta_min over all epochs
         # Step is called once per epoch (after validation) in fit()
