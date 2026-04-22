@@ -174,7 +174,7 @@ def phase1_cache_logits(model: EndToEndOlmoSegmenter, device: torch.device, data
 # ─────────────────────────────────────────────
 # PHASE 2: Upsample + Geo-Reference + Save
 # ─────────────────────────────────────────────
-def phase2_save_masks(upsample_mode: str = 'bilinear'):
+def phase2_save_masks(upsample_mode: str = 'bilinear', data_root: str = "data/raw/RiverScope_dataset"):
     """
     Reads cached 10m logits, upsamples to native 3m resolution, and saves
     as geo-referenced GeoTIFFs with the correct CRS and Affine transform.
