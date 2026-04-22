@@ -52,13 +52,9 @@ class RiverScopeDataset(Dataset):
             total_channels = src.count
             read_channels = min(total_channels, 12)
             
-            # Resample to canonical tile_size via rasterio for consistent batch stacking.
-            # tile_size (e.g. 512x512) is still >> model's internal 224x224, preserving
-            # the higher-resolution spatial detail the dynamic pipeline requires.
+            # Read the raw array exactly as it is on disk (NO interpolation/resampling)
             img_data = src.read(
-                indexes=tuple(range(1, read_channels + 1)),
-                out_shape=(read_channels, self.tile_size[0], self.tile_size[1]),
-                resampling=Resampling.bilinear
+                indexes=tuple(range(1, read_channels + 1))
             )
             
             # Preserve geospatial metadata for downstream geo-referenced mask saving.
@@ -78,7 +74,7 @@ class RiverScopeDataset(Dataset):
         # If the input has exactly 4 channels, we assume it is PlanetScope (Blue, Green, Red, NIR).
         # We align it to OlmoEarth's expected Sentinel-2 index ordering.
         # Standard S2 12-band order: B01, B02(Blue), B03(Green), B04(Red), B05, B06, B07, B08(NIR), B8A, B09, B11, B12
-        native_h, native_w = self.tile_size[0], self.tile_size[1]
+        native_h, native_w = img_data.shape[1], img_data.shape[2]
         if read_channels == 4:
             s2_aligned = np.zeros((12, native_h, native_w), dtype=img_data.dtype)
             s2_aligned[1] = img_data[0]  # PS Blue  -> S2 B02 (Index 1)
@@ -95,12 +91,9 @@ class RiverScopeDataset(Dataset):
         # 2. NATIVE LOAD MASK — NO DOWNSAMPLING
         # ==========================================
         with rasterio.open(mask_path) as src:
-            mask_data = src.read(
-                1,
-                out_shape=(self.tile_size[0], self.tile_size[1]),
-                resampling=Resampling.bilinear
-            )
-            # Re-binarize cleanly to avoid jagged nearest-neighbor artifacts
+            # Read the raw mask exactly as it is on disk
+            mask_data = src.read(1)
+            # Re-binarize cleanly just in case
             mask_data = (mask_data > 0.5).astype(np.uint8)
             
         # ==========================================
